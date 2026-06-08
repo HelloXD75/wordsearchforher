@@ -11,20 +11,23 @@ body {
   font-family: Arial;
   background: pink;
   text-align: center;
+  overflow-x: hidden;
 }
 
-/* GAME */
+h1 { color: white; }
+
 #grid {
   display: grid;
-  grid-template-columns: repeat(10, 35px);
-  gap: 5px;
+  grid-template-columns: repeat(10, 34px);
+  gap: 4px;
   justify-content: center;
   margin-top: 20px;
+  touch-action: none; /* IMPORTANT for mobile drag */
 }
 
 .cell {
-  width: 35px;
-  height: 35px;
+  width: 34px;
+  height: 34px;
   background: white;
   display: flex;
   align-items: center;
@@ -32,14 +35,14 @@ body {
   font-weight: bold;
   border-radius: 5px;
   user-select: none;
-  transition: 0.2s;
+  font-size: 14px;
 }
 
-.selected { background: hotpink; color: white; transform: scale(1.1); }
+.selected { background: hotpink; color: white; }
 .found { background: red; color: white; }
 
 #words span {
-  margin: 5px;
+  margin: 4px;
   display: inline-block;
   color: white;
   font-weight: bold;
@@ -50,26 +53,25 @@ body {
   opacity: 0.5;
 }
 
-/* FINAL PAGE */
+/* message page */
 #messagePage {
   display: none;
   height: 100vh;
-  overflow: hidden;
   position: relative;
+  overflow: hidden;
 }
 
 #typingText {
   margin-top: 40vh;
-  font-size: 22px;
+  font-size: 20px;
   color: white;
   padding: 20px;
-  white-space: pre-wrap;
 }
 
 /* hearts */
 .heart {
   position: absolute;
-  font-size: 20px;
+  font-size: 18px;
   animation: fall linear infinite;
 }
 
@@ -95,148 +97,116 @@ body {
 <script>
 const words = ["LOVE","YOU","ALONDRA","BABY","WIFE","WISH","KIDS"];
 const message = "💖 i love you alondra my baby my wife i wish to have kids with you 💖";
-const gridSize = 10;
+const size = 10;
 
 let grid = [];
-let selected = [];
-let foundWords = [];
-let isDragging = false;
-let startCell = null;
-let direction = null;
+let cells = [];
+let found = [];
+let dragging = false;
+let start = null;
+let current = [];
 
-// scramble
-function scramble(word) {
-  return word.split('').sort(() => Math.random() - 0.5).join('');
+const gridDiv = document.getElementById("grid");
+
+// build grid
+for (let r = 0; r < size; r++) {
+  grid[r] = [];
+  for (let c = 0; c < size; c++) grid[r][c] = "";
 }
 
-// grid setup
-for (let i = 0; i < gridSize; i++) {
-  grid[i] = [];
-  for (let j = 0; j < gridSize; j++) grid[i][j] = "";
-}
-
-// place words
+// place words (horizontal)
 words.forEach(word => {
   let placed = false;
   while (!placed) {
-    let row = Math.floor(Math.random() * gridSize);
-    let col = Math.floor(Math.random() * (gridSize - word.length));
+    let r = Math.floor(Math.random() * size);
+    let c = Math.floor(Math.random() * (size - word.length));
 
-    let fits = true;
+    let ok = true;
     for (let i = 0; i < word.length; i++) {
-      if (grid[row][col + i] !== "") fits = false;
+      if (grid[r][c + i]) ok = false;
     }
 
-    if (fits) {
+    if (ok) {
       for (let i = 0; i < word.length; i++) {
-        grid[row][col + i] = word[i];
+        grid[r][c + i] = word[i];
       }
       placed = true;
     }
   }
 });
 
-// fill
+// fill random letters
 const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-for (let i = 0; i < gridSize; i++) {
-  for (let j = 0; j < gridSize; j++) {
-    if (!grid[i][j]) {
-      grid[i][j] = letters[Math.floor(Math.random() * letters.length)];
+for (let r = 0; r < size; r++) {
+  for (let c = 0; c < size; c++) {
+    if (!grid[r][c]) {
+      grid[r][c] = letters[Math.floor(Math.random() * letters.length)];
     }
   }
 }
 
-// render
-const gridDiv = document.getElementById("grid");
-grid.forEach((row, r) => {
-  row.forEach((letter, c) => {
-    const cell = document.createElement("div");
-    cell.className = "cell";
-    cell.textContent = letter;
-    cell.dataset.row = r;
-    cell.dataset.col = c;
-
-    cell.addEventListener("pointerdown", start);
-    cell.addEventListener("pointerenter", move);
-
-    gridDiv.appendChild(cell);
-  });
-});
-
-document.body.addEventListener("pointerup", end);
+// render cells + store reference grid (IMPORTANT for speed)
+for (let r = 0; r < size; r++) {
+  cells[r] = [];
+  for (let c = 0; c < size; c++) {
+    const div = document.createElement("div");
+    div.className = "cell";
+    div.textContent = grid[r][c];
+    gridDiv.appendChild(div);
+    cells[r][c] = div;
+  }
+}
 
 // word list
 const wordsDiv = document.getElementById("words");
-words.forEach(word => {
-  const span = document.createElement("span");
-  span.textContent = scramble(word);
-  span.dataset.word = word;
-  wordsDiv.appendChild(span);
+words.forEach(w => {
+  const s = document.createElement("span");
+  s.textContent = w;
+  s.dataset.word = w;
+  wordsDiv.appendChild(s);
 });
 
-// drag logic
-function start(e) {
-  isDragging = true;
-  selected = [];
-  direction = null;
-  startCell = e.target;
-  selectCell(e.target);
-}
+// TOUCH HANDLING (FAST MOBILE VERSION)
+gridDiv.addEventListener("touchstart", e => {
+  const cell = getCell(e.touches[0]);
+  if (!cell) return;
 
-function move(e) {
-  if (!isDragging) return;
-  const cell = e.target;
-  if (!cell.classList.contains("cell")) return;
+  clearSelection();
+  dragging = true;
+  start = cell;
+  current = [cell];
+  cell.classList.add("selected");
+});
 
-  const r1 = +startCell.dataset.row;
-  const c1 = +startCell.dataset.col;
-  const r2 = +cell.dataset.row;
-  const c2 = +cell.dataset.col;
+gridDiv.addEventListener("touchmove", e => {
+  if (!dragging) return;
 
-  const dr = r2 - r1;
-  const dc = c2 - c1;
+  const cell = getCell(e.touches[0]);
+  if (!cell) return;
 
-  if (!direction) {
-    direction = { dr: Math.sign(dr), dc: Math.sign(dc) };
+  if (!current.includes(cell)) {
+    current.push(cell);
+    cell.classList.add("selected");
   }
+});
 
-  if (Math.sign(dr) === direction.dr && Math.sign(dc) === direction.dc) {
-    clearSelection();
+gridDiv.addEventListener("touchend", () => {
+  if (!dragging) return;
+  dragging = false;
 
-    let r = r1, c = c1;
-    selected = [];
+  const word = current.map(c => c.textContent).join("");
 
-    while (true) {
-      const el = document.querySelector(`.cell[data-row='${r}'][data-col='${c}']`);
-      if (!el) break;
+  if (words.includes(word) && !found.includes(word)) {
+    found.push(word);
 
-      selectCell(el);
-
-      if (r === r2 && c === c2) break;
-
-      r += direction.dr;
-      c += direction.dc;
-    }
-  }
-}
-
-function end() {
-  if (!isDragging) return;
-  isDragging = false;
-
-  let word = selected.map(c => c.textContent).join("");
-
-  if (words.includes(word) && !foundWords.includes(word)) {
-    foundWords.push(word);
-
-    selected.forEach(c => {
+    current.forEach(c => {
       c.classList.remove("selected");
       c.classList.add("found");
     });
 
-    document.querySelectorAll("#words span").forEach(span => {
-      if (span.dataset.word === word) {
-        span.classList.add("foundWord");
+    document.querySelectorAll("#words span").forEach(s => {
+      if (s.dataset.word === word) {
+        s.classList.add("foundWord");
       }
     });
 
@@ -244,65 +214,60 @@ function end() {
     clearSelection();
   }
 
-  selected = [];
+  current = [];
 
-  if (foundWords.length === words.length) {
-    setTimeout(showFinalPage, 800);
+  if (found.length === words.length) {
+    setTimeout(showFinal, 700);
   }
-}
+});
 
-function selectCell(cell) {
-  if (!selected.includes(cell)) {
-    selected.push(cell);
-    cell.classList.add("selected");
-  }
+// get touched cell
+function getCell(touch) {
+  const el = document.elementFromPoint(touch.clientX, touch.clientY);
+  if (!el || !el.classList.contains("cell")) return null;
+  return el;
 }
 
 function clearSelection() {
-  selected.forEach(c => c.classList.remove("selected"));
+  current.forEach(c => c.classList.remove("selected"));
 }
 
 // FINAL PAGE FLOW
-function showFinalPage() {
+function showFinal() {
   document.getElementById("gamePage").style.display = "none";
   document.getElementById("messagePage").style.display = "block";
 
-  setTimeout(startTyping, 1000); // blank delay
+  setTimeout(typeMessage, 1000);
 }
 
-// typing effect
-function startTyping() {
+// typing animation
+function typeMessage() {
   let i = 0;
-  const speed = 40;
-  const textDiv = document.getElementById("typingText");
+  const div = document.getElementById("typingText");
 
   function type() {
     if (i < message.length) {
-      textDiv.textContent += message[i];
-      i++;
-      setTimeout(type, speed);
+      div.textContent += message[i++];
+      setTimeout(type, 35);
     } else {
-      startHearts(); // hearts AFTER typing
+      startHearts();
     }
   }
-
   type();
 }
 
-// hearts after message
+// hearts AFTER win
 function startHearts() {
-  setInterval(createHeart, 300);
-}
+  setInterval(() => {
+    const h = document.createElement("div");
+    h.className = "heart";
+    h.textContent = "💖";
+    h.style.left = Math.random() * 100 + "vw";
+    h.style.animationDuration = (2 + Math.random() * 3) + "s";
+    document.body.appendChild(h);
 
-function createHeart() {
-  const heart = document.createElement("div");
-  heart.className = "heart";
-  heart.innerText = "💖";
-  heart.style.left = Math.random() * 100 + "vw";
-  heart.style.animationDuration = (Math.random() * 3 + 2) + "s";
-  document.body.appendChild(heart);
-
-  setTimeout(() => heart.remove(), 5000);
+    setTimeout(() => h.remove(), 5000);
+  }, 250);
 }
 </script>
 
